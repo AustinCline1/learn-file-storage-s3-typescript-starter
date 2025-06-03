@@ -1,8 +1,51 @@
 import { respondWithJSON } from "./json";
-
 import { type ApiConfig } from "../config";
-import type { BunRequest } from "bun";
+import {type BunRequest, S3Client} from "bun";
+import {BadRequestError, UserForbiddenError} from "./errors.ts";
+import {getBearerToken, validateJWT} from "../auth.ts";
+import {getVideo, updateVideo} from "../db/videos.ts";
+import {getBucketURL, getMediaExt} from "./assets.ts";
+import {randomBytes} from "crypto";
+import {rm} from "fs/promises"
 
 export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
-  return respondWithJSON(200, null);
+  const {videoId} = req.params as { videoId?: string };
+  if(!videoId) {
+    throw new BadRequestError("Invalid video ID");
+  }
+  const token = getBearerToken(req.headers);
+  const userID = validateJWT(token,cfg.jwtSecret);
+  const video = getVideo(cfg.db, videoId);
+  if(userID !== video?.userID) {
+    throw new UserForbiddenError("Not authorized to upload this video to this account");
+  }
+  const formData = await req.formData();
+  const file = formData.get("video");
+  const MAX_UPLOAD_SIZE = 1024 * 1024 * 1024;
+  if(!(file instanceof File)){
+    throw new BadRequestError("Invalid file type");
+  }
+  if(file.size > MAX_UPLOAD_SIZE) {
+    throw new BadRequestError("Invalid file size");
+  }
+  const mediaType = getMediaExt(file.type);
+  if(file.type !== "video/mp4"){
+    throw new BadRequestError("Invalid media type");
+  }
+  const tmpPath = `/tmp/${videoId}.mp4`;
+  await Bun.write(tmpPath,file);
+  console.log(tmpPath);
+
+  const filepath = `${videoId}.mp4`;
+  const s3file = cfg.s3Client.file(filepath, {bucket : cfg.s3Bucket});
+  const videoFile = Bun.file(tmpPath);
+  await s3file.write(videoFile, {type: "video/mp4"});
+
+  video.videoURL = getBucketURL(cfg,filepath);
+  console.log(video?.videoURL);
+  updateVideo(cfg.db, video);
+
+  await Promise.all([rm(tmpPath), {force: true}]);
+
+  return respondWithJSON(200, video);
 }
