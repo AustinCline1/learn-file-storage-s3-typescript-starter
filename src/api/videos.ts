@@ -4,7 +4,7 @@ import {type BunRequest, S3Client} from "bun";
 import {BadRequestError, UserForbiddenError} from "./errors.ts";
 import {getBearerToken, validateJWT} from "../auth.ts";
 import {getVideo, updateVideo} from "../db/videos.ts";
-import {getBucketURL, getMediaExt} from "./assets.ts";
+import {getBucketURL, getMediaExt, getVideoAspectRation} from "./assets.ts";
 import {randomBytes} from "crypto";
 import {rm} from "fs/promises"
 
@@ -28,21 +28,19 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
   if(file.size > MAX_UPLOAD_SIZE) {
     throw new BadRequestError("Invalid file size");
   }
-  const mediaType = getMediaExt(file.type);
   if(file.type !== "video/mp4"){
     throw new BadRequestError("Invalid media type");
   }
   const tmpPath = `/tmp/${videoId}.mp4`;
   await Bun.write(tmpPath,file);
-  console.log(tmpPath);
 
-  const filepath = `${videoId}.mp4`;
+  const aspectRatio = await getVideoAspectRation(tmpPath);
+  const filepath = `${aspectRatio}/${videoId}.mp4`;
   const s3file = cfg.s3Client.file(filepath, {bucket : cfg.s3Bucket});
   const videoFile = Bun.file(tmpPath);
   await s3file.write(videoFile, {type: "video/mp4"});
 
   video.videoURL = getBucketURL(cfg,filepath);
-  console.log(video?.videoURL);
   updateVideo(cfg.db, video);
 
   await Promise.all([rm(tmpPath), {force: true}]);
