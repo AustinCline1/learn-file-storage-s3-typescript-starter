@@ -4,7 +4,13 @@ import {type BunRequest, S3Client} from "bun";
 import {BadRequestError, UserForbiddenError} from "./errors.ts";
 import {getBearerToken, validateJWT} from "../auth.ts";
 import {getVideo, updateVideo} from "../db/videos.ts";
-import {getBucketURL, getMediaExt, getVideoAspectRatio, processVideoForFastStart} from "./assets.ts";
+import {
+  dbVideoToSignedVideo,
+  getBucketURL,
+  getMediaExt,
+  getVideoAspectRatio,
+  processVideoForFastStart
+} from "./assets.ts";
 import {randomBytes} from "crypto";
 import {rm} from "fs/promises"
 
@@ -41,9 +47,9 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
   const s3file = cfg.s3Client.file(filepath, {bucket : cfg.s3Bucket});
   const videoFile = Bun.file(newPath);
   await s3file.write(videoFile, {type: "video/mp4"});
-
-  video.videoURL = getBucketURL(cfg,filepath);
+  video.videoURL = `${filepath}`;
   updateVideo(cfg.db, video);
+  const updatedVideo = await dbVideoToSignedVideo(cfg,video);
 
   await Promise.all(
       [
@@ -53,5 +59,5 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
   );
 
 
-  return respondWithJSON(200, video);
+  return respondWithJSON(200, updatedVideo);
 }
