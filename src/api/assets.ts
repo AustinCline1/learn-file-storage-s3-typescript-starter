@@ -28,7 +28,7 @@ export function getBucketURL(cfg: ApiConfig, key: string):string {
 }
 
 
-export async function getVideoAspectRation(filePath: string) {
+export async function getVideoAspectRatio(filePath: string) {
   const proc = Bun.spawn(
       ["ffprobe", "-v","error","-select_streams", "v:0", "-show_entries", "stream=width,height", "-of","json", filePath]);
   const stdout:string = await new Response(proc.stdout).text();
@@ -49,5 +49,17 @@ export async function getVideoAspectRation(filePath: string) {
       :dataHeight === Math.floor(16 * (dataWidth / 9))
   ? "portrait"
           : "other";
+
+}
+
+
+export async function processVideoForFastStart(inputFilePath: any) {
+
+  const outputPath = inputFilePath + ".processed.mp4"
+  const proc = Bun.spawn(["ffmpeg", "-i", inputFilePath, "-movflags", "faststart", "-map_metadata", "0" , "-codec", "copy", "-f" , "mp4", outputPath]);
+  if(await proc.exited !== 0) {
+    throw new Error("Failed to process video");
+  }
+  return outputPath;
 
 }

@@ -4,7 +4,7 @@ import {type BunRequest, S3Client} from "bun";
 import {BadRequestError, UserForbiddenError} from "./errors.ts";
 import {getBearerToken, validateJWT} from "../auth.ts";
 import {getVideo, updateVideo} from "../db/videos.ts";
-import {getBucketURL, getMediaExt, getVideoAspectRation} from "./assets.ts";
+import {getBucketURL, getMediaExt, getVideoAspectRatio, processVideoForFastStart} from "./assets.ts";
 import {randomBytes} from "crypto";
 import {rm} from "fs/promises"
 
@@ -34,16 +34,24 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
   const tmpPath = `/tmp/${videoId}.mp4`;
   await Bun.write(tmpPath,file);
 
-  const aspectRatio = await getVideoAspectRation(tmpPath);
+
+  const newPath = await processVideoForFastStart(tmpPath);
+  const aspectRatio = await getVideoAspectRatio(newPath);
   const filepath = `${aspectRatio}/${videoId}.mp4`;
   const s3file = cfg.s3Client.file(filepath, {bucket : cfg.s3Bucket});
-  const videoFile = Bun.file(tmpPath);
+  const videoFile = Bun.file(newPath);
   await s3file.write(videoFile, {type: "video/mp4"});
 
   video.videoURL = getBucketURL(cfg,filepath);
   updateVideo(cfg.db, video);
 
-  await Promise.all([rm(tmpPath), {force: true}]);
+  await Promise.all(
+      [
+          rm(tmpPath, {force: true}),
+          rm(newPath, {force: true})
+      ]
+  );
+
 
   return respondWithJSON(200, video);
 }
